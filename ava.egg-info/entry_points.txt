@@ -1,0 +1,4 @@
+
+      [console_scripts]
+      ava=ava.cli:cli
+    
