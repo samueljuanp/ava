@@ -1,7 +1,7 @@
 import click
 from ava.services.funda import Fundamental
 
-
+#hahaha
 class Context:
     def __init__(self, ticker):
         self.ticker = ticker
