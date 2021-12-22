@@ -62,15 +62,17 @@ class Quantitative:
         significant = param_pvalue[param_pvalue['P-Value'] <= 0.05]
 
         # compute expected return
-        if 'Intercept' in significant.index:
-            alpha = significant.loc['Intercept', 'Param']
-            significant = significant.drop('Intercept')
-            exp_month = (self.factor[significant.index].mean() * significant['Param']).sum() + alpha
-            exp_annual = exp_month * 12
+        if significant.empty:
+            exp_month = self.factor['MKT'].mean() * result.params['MKT']
         else:
-            exp_month = (self.factor[significant.index].mean() * significant['Param']).sum()
-            exp_annual = exp_month * 12
+            if 'Intercept' in significant.index:
+                alpha = significant.loc['Intercept', 'Param']
+                significant = significant.drop('Intercept')
+                exp_month = (self.factor[significant.index].mean() * significant['Param']).sum() + alpha
+            else:
+                exp_month = (self.factor[significant.index].mean() * significant['Param']).sum()
 
+        exp_annual = exp_month * 12
         return exp_annual
 
     def _compute_hist_volatility(self):
