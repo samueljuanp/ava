@@ -10,8 +10,8 @@ class Context:
 
 
 @click.group()
-@click.option('--ticker', type=str, default='SPY', help="Yahoo Finance ticker")
-@click.option('--window', type=int, default=3650, help="Lookback period in days")
+@click.option('--ticker', type=str, default='AAPL', help="Yahoo Finance ticker")
+@click.option('--window', type=int, default=1095, help="Lookback period in days")
 @click.pass_context
 def cli(ctx, ticker, window):
     """Quantitative Analysis"""
@@ -20,16 +20,9 @@ def cli(ctx, ticker, window):
 
 @cli.command()
 @click.pass_context
-def alpha(ctx):
-    """Alpha from Carhart 4-Factor Model"""
-    click.echo(ctx.obj.quant.get_alpha())
-
-
-@cli.command()
-@click.pass_context
 def beta(ctx):
-    """Beta from Carhart 4-Factor Model"""
-    click.echo(ctx.obj.quant.get_beta())
+    """Beta from CAPM with SPY ETF"""
+    click.echo(ctx.obj.quant.get_capm_beta())
 
 
 @cli.command()

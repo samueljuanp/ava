@@ -2,51 +2,44 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 import pandas_datareader as wb
-import getFamaFrenchFactors as gff
 import statsmodels.formula.api as smf
 
 
 class Quantitative:
     def __init__(self, ticker, window):
         self.ticker = ticker
+        self.window = window
         self.end = dt.datetime.today()
         self.start = self.end - dt.timedelta(days=window)
-        self.price = None
-        self.factor = None
+        self.daily_return = None
+        self.daily_factor = None
 
     def _compute_regression(self):
 
         # fetch price data from Yahoo Finance
         price = wb.DataReader(self.ticker, 'yahoo', self.start, self.end)['Adj Close']
-        price.name = self.ticker
-        monthly_return = price.resample('M').last().pct_change().dropna()
+        daily_return = price.pct_change().iloc[1:]
+        daily_return.name = self.ticker
 
-        # fetch factor data from getFamaFrenchFactors
-        factor = gff.carhart4Factor(frequency='m')
-        factor.rename(columns={'date_ff_factors': 'Date'}, inplace=True)
-        factor.rename(columns={'Mkt-RF': 'MKT'}, inplace=True)
-        factor.set_index('Date', inplace=True)
+        # fetch Fama-French data
+        five_factor = wb.DataReader('F-F_Research_Data_5_Factors_2x3_daily', 'famafrench', self.start, self.end)
+        five_factor = five_factor[0] / 100
+        momentum = wb.DataReader('F-F_Momentum_Factor_daily', 'famafrench', self.start, self.end)
+        momentum = momentum[0] / 100
+        momentum.columns = ['MOM']
+        daily_factor = pd.concat([five_factor, momentum], axis=1)
+        daily_factor.rename(columns={'Mkt-RF': 'MKT'}, inplace=True)
 
         # assign to attributes
-        self.price = price
-        self.factor = factor
+        self.daily_return = daily_return
+        self.daily_factor = daily_factor
 
         # compute regression
-        ff_data = factor.merge(monthly_return, on='Date')
-        ff_model = smf.ols(formula=f"{self.ticker} ~ MKT + SMB + HML + MOM", data=ff_data)
+        ff_data = daily_factor.merge(daily_return, on='Date')
+        ff_model = smf.ols(formula=f"{self.ticker} ~ MKT + SMB + HML + RMW + CMA + MOM", data=ff_data)
         result = ff_model.fit()
 
         return result
-
-    def get_alpha(self):
-        result = self._compute_regression()
-        alpha = result.params['Intercept']
-        print(f"Alpha of {self.ticker}: {alpha:.3f}")
-
-    def get_beta(self):
-        result = self._compute_regression()
-        beta = result.params['MKT']
-        print(f"Beta of {self.ticker}: {beta:.3f}")
 
     def get_regression_summary(self):
         result = self._compute_regression()
@@ -63,33 +56,43 @@ class Quantitative:
 
         # compute expected return
         if significant.empty:
-            exp_month = self.factor['MKT'].mean() * result.params['MKT']
+            ret_daily = self.daily_factor['MKT'].mean() * result.params['MKT']
         else:
             if 'Intercept' in significant.index:
                 alpha = significant.loc['Intercept', 'Param']
                 significant = significant.drop('Intercept')
-                exp_month = (self.factor[significant.index].mean() * significant['Param']).sum() + alpha
+                ret_daily = (self.daily_factor[significant.index].mean() * significant['Param']).sum() + alpha
             else:
-                exp_month = (self.factor[significant.index].mean() * significant['Param']).sum()
+                ret_daily = (self.daily_factor[significant.index].mean() * significant['Param']).sum()
 
-        exp_annual = exp_month * 12
-        return exp_annual
+        ret_annual = ret_daily * 252
+        return ret_annual
 
     def _compute_hist_volatility(self):
-        return self.price.pct_change().std(skipna=True) * np.sqrt(252)
+        return self.daily_return.std() * np.sqrt(252)
 
     def get_risk_return_profile(self):
-        exp_annual = self._compute_expected_return()
-        vol = self._compute_hist_volatility()
-        sharpe = exp_annual / vol
+        ret_annual = self._compute_expected_return()
+        vol_annual = self._compute_hist_volatility()
+        sharpe = ret_annual / vol_annual
 
         # log messages
-        print(f"\nRisk & Return Profile of {self.ticker}")
-        print('=' * (25 + len(self.ticker)))
-        print(f"Expected annual return: {(exp_annual * 100):.2f}%")
-        print(f"Historical volatility: {(vol * 100):.2f}%")
-        print(f"Risk-adjusted return: {sharpe:.3f}")
+        print(f"\nReturn / Risk Profile of {self.ticker} ({int(self.window/365)}Y)")
+        print('=' * (30 + len(self.ticker)))
+        print(f"Expected annual return : {(ret_annual * 100):.2f}%")
+        print(f"Historical volatility  : {(vol_annual * 100):.2f}%")
+        print(f"Risk-adjusted return   : {sharpe:.3f}")
 
+    def get_capm_beta(self):
+        """Function to calculate non-equity beta compared to the market"""
 
+        # fetch data
+        price = wb.DataReader([self.ticker, 'SPY'], 'yahoo', self.start, self.end)['Adj Close']
+        price.rename(columns={'SPY': 'MKT'}, inplace=True)
+        daily_return = price.pct_change().iloc[1:]
 
+        # compute regression
+        capm = smf.ols(formula=f"{self.ticker} ~ MKT", data=daily_return)
+        result = capm.fit()
 
+        print(f"Beta of {self.ticker} ({int(self.window/365)}Y): {result.params['MKT']:.3f}")
