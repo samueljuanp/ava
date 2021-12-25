@@ -11,17 +11,21 @@ class Quantitative:
         self.window = window
         self.end = dt.datetime.today()
         self.start = self.end - dt.timedelta(days=window)
+        self.price = None
         self.daily_return = None
         self.daily_factor = None
 
-    def _compute_regression(self):
+    def _fetch_price_data(self):
 
-        # fetch price data from Yahoo Finance
         price = wb.DataReader(self.ticker, 'yahoo', self.start, self.end)['Adj Close']
         daily_return = price.pct_change().iloc[1:]
         daily_return.name = self.ticker
 
-        # fetch Fama-French data
+        self.price = price
+        self.daily_return = daily_return
+
+    def _fetch_factor_data(self):
+
         five_factor = wb.DataReader('F-F_Research_Data_5_Factors_2x3_daily', 'famafrench', self.start, self.end)
         five_factor = five_factor[0] / 100
         momentum = wb.DataReader('F-F_Momentum_Factor_daily', 'famafrench', self.start, self.end)
@@ -30,12 +34,14 @@ class Quantitative:
         daily_factor = pd.concat([five_factor, momentum], axis=1)
         daily_factor.rename(columns={'Mkt-RF': 'MKT'}, inplace=True)
 
-        # assign to attributes
-        self.daily_return = daily_return
         self.daily_factor = daily_factor
 
-        # compute regression
-        ff_data = daily_factor.merge(daily_return, on='Date')
+    def _compute_regression(self):
+
+        self._fetch_price_data()
+        self._fetch_factor_data()
+
+        ff_data = self.daily_factor.merge(self.daily_return, on='Date')
         ff_model = smf.ols(formula=f"{self.ticker} ~ MKT + SMB + HML + RMW + CMA + MOM", data=ff_data)
         result = ff_model.fit()
 
@@ -68,20 +74,34 @@ class Quantitative:
         ret_annual = ret_daily * 252
         return ret_annual
 
+    def _compute_hist_return(self):
+        return self.daily_return.mean() * 252
+
     def _compute_hist_volatility(self):
         return self.daily_return.std() * np.sqrt(252)
 
     def get_risk_return_profile(self):
-        ret_annual = self._compute_expected_return()
-        vol_annual = self._compute_hist_volatility()
-        sharpe = ret_annual / vol_annual
+        expected_return = self._compute_expected_return()
+        hist_return = self._compute_hist_return()
+        hist_vol = self._compute_hist_volatility()
+        expected_sharpe = expected_return / hist_vol
+
+        market_return = self.daily_factor['MKT'].mean() * 252
+        market_vol = self.daily_factor['MKT'].std() * np.sqrt(252)
+        market_sharpe = market_return / market_vol
 
         # log messages
         print(f"\nReturn / Risk Profile of {self.ticker} ({int(self.window/365)}Y)")
         print('=' * (30 + len(self.ticker)))
-        print(f"Expected annual return : {(ret_annual * 100):.2f}%")
-        print(f"Historical volatility  : {(vol_annual * 100):.2f}%")
-        print(f"Risk-adjusted return   : {sharpe:.3f}")
+        print(f"Expected return        : {(expected_return * 100):.2f}%")
+        print(f"Historical return      : {(hist_return * 100):.2f}%")
+        print(f"Historical volatility  : {(hist_vol * 100):.2f}%")
+        print(f"Equity Sharpe          : {expected_sharpe:.3f}")
+        print(f"\nMarket Excess Profile ({int(self.window / 365)}Y)")
+        print('=' * (30 + len(self.ticker)))
+        print(f"Historical return      : {(market_return * 100):.2f}%")
+        print(f"Historical volatility  : {(market_vol * 100):.2f}%")
+        print(f"Benchmark Sharpe       : {market_sharpe:.3f}")
 
     def get_capm_beta(self):
         """Function to calculate non-equity beta compared to the market"""

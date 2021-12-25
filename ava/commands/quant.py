@@ -11,7 +11,7 @@ class Context:
 
 @click.group()
 @click.option('--ticker', type=str, default='AAPL', help="Yahoo Finance ticker")
-@click.option('--window', type=int, default=1095, help="Lookback period in days")
+@click.option('--window', type=int, default=1825, help="Lookback period in days")
 @click.pass_context
 def cli(ctx, ticker, window):
     """Quantitative Analysis"""
