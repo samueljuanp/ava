@@ -24,15 +24,29 @@ class Quantitative:
         self.price = price
         self.daily_return = daily_return
 
+    # TODO: AUTOMATE DAILY DATA-PULLING AND STORE INSIDE DATABASE TO AVOID REPETITIVE REQUEST
     def _fetch_factor_data(self):
 
+        # Fama-French 5 factors
         five_factor = wb.DataReader('F-F_Research_Data_5_Factors_2x3_daily', 'famafrench', self.start, self.end)
         five_factor = five_factor[0] / 100
+
+        # short-term reversal
+        st_reversal = wb.DataReader('F-F_ST_Reversal_Factor_daily', 'famafrench', self.start, self.end)
+        st_reversal = st_reversal[0] / 100
+
+        # momentum factor
         momentum = wb.DataReader('F-F_Momentum_Factor_daily', 'famafrench', self.start, self.end)
         momentum = momentum[0] / 100
-        momentum.columns = ['MOM']
-        daily_factor = pd.concat([five_factor, momentum], axis=1)
-        daily_factor.rename(columns={'Mkt-RF': 'MKT'}, inplace=True)
+
+        # concatenate dataframes
+        daily_factor = pd.concat([five_factor, st_reversal, momentum], axis=1)
+        daily_factor.rename(columns={
+            'Mkt-RF': 'MKT',
+            'Mom   ': 'MOM',
+            'ST_Rev': 'STR',
+        }, inplace=True)
+        daily_factor.drop('RF', axis=1, inplace=True)
 
         self.daily_factor = daily_factor
 
@@ -42,7 +56,7 @@ class Quantitative:
         self._fetch_factor_data()
 
         ff_data = self.daily_factor.merge(self.daily_return, on='Date')
-        ff_model = smf.ols(formula=f"{self.ticker} ~ MKT + SMB + HML + RMW + CMA + MOM", data=ff_data)
+        ff_model = smf.ols(formula=f"{self.ticker} ~ MKT + SMB + HML + RMW + CMA + STR + MOM", data=ff_data)
         result = ff_model.fit()
 
         return result
@@ -59,6 +73,7 @@ class Quantitative:
 
         # get coefficients with significant p-value
         significant = param_pvalue[param_pvalue['P-Value'] <= 0.05]
+        print(f"\nSignificant factor(s): {', '.join([s if s!='Intercept' else 'ALPHA' for s in significant.index])}")
 
         # compute expected return
         if significant.empty:
@@ -84,7 +99,7 @@ class Quantitative:
         expected_return = self._compute_expected_return()
         hist_return = self._compute_hist_return()
         hist_vol = self._compute_hist_volatility()
-        expected_sharpe = expected_return / hist_vol
+        conservative_sharpe = min(expected_return, hist_return) / hist_vol
 
         market_return = self.daily_factor['MKT'].mean() * 252
         market_vol = self.daily_factor['MKT'].std() * np.sqrt(252)
@@ -96,12 +111,12 @@ class Quantitative:
         print(f"Expected return        : {(expected_return * 100):.2f}%")
         print(f"Historical return      : {(hist_return * 100):.2f}%")
         print(f"Historical volatility  : {(hist_vol * 100):.2f}%")
-        print(f"Equity Sharpe          : {expected_sharpe:.3f}")
+        print(f"Conservative Sharpe    : {conservative_sharpe:.3f}")
         print(f"\nMarket Excess Profile ({int(self.window / 365)}Y)")
         print('=' * (30 + len(self.ticker)))
         print(f"Historical return      : {(market_return * 100):.2f}%")
         print(f"Historical volatility  : {(market_vol * 100):.2f}%")
-        print(f"Benchmark Sharpe       : {market_sharpe:.3f}")
+        print(f"Historical Sharpe      : {market_sharpe:.3f}")
 
     def get_capm_beta(self):
         """Function to calculate non-equity beta compared to the market"""
