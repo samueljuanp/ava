@@ -72,19 +72,20 @@ class Quantitative:
         param_pvalue.columns = ['Param', 'P-Value']
 
         # get coefficients with significant p-value
-        significant = param_pvalue[param_pvalue['P-Value'] <= 0.05]
-        print(f"\nSignificant factor(s): {', '.join([s if s!='Intercept' else 'ALPHA' for s in significant.index])}")
+        signif = param_pvalue[param_pvalue['P-Value'] <= 0.05]
 
         # compute expected return
-        if significant.empty:
+        if signif.empty:
+            print('Significant factor: MKT')
             ret_daily = self.daily_factor['MKT'].mean() * result.params['MKT']
         else:
-            if 'Intercept' in significant.index:
-                alpha = significant.loc['Intercept', 'Param']
-                significant = significant.drop('Intercept')
-                ret_daily = (self.daily_factor[significant.index].mean() * significant['Param']).sum() + alpha
+            print(f"\nSignificant factor(s): {', '.join([s if s != 'Intercept' else 'ALPHA' for s in signif.index])}")
+            if 'Intercept' in signif.index:
+                alpha = signif.loc['Intercept', 'Param']
+                signif = signif.drop('Intercept')
+                ret_daily = (self.daily_factor[signif.index].mean() * signif['Param']).sum() + alpha
             else:
-                ret_daily = (self.daily_factor[significant.index].mean() * significant['Param']).sum()
+                ret_daily = (self.daily_factor[signif.index].mean() * signif['Param']).sum()
 
         ret_annual = ret_daily * 252
         return ret_annual
